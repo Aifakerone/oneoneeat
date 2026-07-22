@@ -1,3 +1,4 @@
+
 body {
     font-family: "Helvetica Neue", Helvetica, STHeiTi, sans-serif;
     margin: 0;
@@ -123,6 +124,12 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
+    /* Keep rapid taps in the game rather than turning them into browser
+       scrolling, zooming, selection, or long-press gestures. */
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
     overflow: hidden;
     background: #fff;
 }
