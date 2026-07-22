@@ -119,6 +119,18 @@ body {
     overflow: hidden;
 }
 
+#GameCPSLayer {
+    top: 5.6em;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    color: #4b555d;
+    font-size: 1.5em;
+    font-weight: bold;
+    text-shadow: 0 0 2px #fff;
+    pointer-events: none;
+}
+
 #GameLayerBG {
     top: 0;
     left: 0;
