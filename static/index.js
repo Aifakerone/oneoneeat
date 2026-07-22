@@ -1,3 +1,4 @@
+
 const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
 
 (function(w) {
@@ -75,10 +76,13 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
         GameLayer.push(document.getElementById('GameLayer2'));
         GameLayer[1].children = GameLayer[1].querySelectorAll('div');
         GameLayerBG = document.getElementById('GameLayerBG');
-        if (GameLayerBG.ontouchstart === null) {
-            GameLayerBG.ontouchstart = gameTapEvent;
+        // Pointer Events cover touch, mouse and stylus with one code path. The
+        // old touchstart-or-mousedown split could lose a tap on mobile Safari.
+        if (window.PointerEvent) {
+            GameLayerBG.addEventListener('pointerdown', gameTapEvent, {passive: false});
         } else {
-            GameLayerBG.onmousedown = gameTapEvent;
+            GameLayerBG.addEventListener('touchstart', gameTapEvent, {passive: false});
+            GameLayerBG.addEventListener('mousedown', gameTapEvent);
         }
         gameInit();
         initSetting();
@@ -350,15 +354,25 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
         if (_gameOver) {
             return false;
         }
-        let tar = e.target;
-        let y = e.clientY || e.targetTouches[0].clientY,
-            x = (e.clientX || e.targetTouches[0].clientX) - body.offsetLeft,
-            p = _gameBBList[_gameBBListIndex];
-        if (y > touchArea[0] || y < touchArea[1]) {
+        if (e.pointerType === 'mouse' && e.button !== 0) {
             return false;
         }
-        if ((p.id === tar.id && tar.notEmpty) || (p.cell === 0 && x < blockSize) || (p.cell === 1 && x > blockSize && x < 2 *
-            blockSize) || (p.cell === 2 && x > 2 * blockSize && x < 3 * blockSize) || (p.cell === 3 && x > 3 * blockSize)) {
+        if (e.cancelable) {
+            e.preventDefault();
+        }
+        let tar = e.target;
+        let point = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e),
+            rect = GameLayerBG.getBoundingClientRect(),
+            x = point.clientX - rect.left,
+            y = point.clientY - rect.top,
+            p = _gameBBList[_gameBBListIndex];
+        if (x < 0 || x >= rect.width || y > touchArea[0] || y < touchArea[1]) {
+            return false;
+        }
+        // Use the tap coordinate rather than event.target: a tile can move
+        // under a finger during the animation, making target unreliable.
+        let tappedCell = Math.floor(x / blockSize);
+        if (p.cell === tappedCell) {
             if (!_gameStart) {
                 gameStart();
             }
