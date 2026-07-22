@@ -364,9 +364,11 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
         let point = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e),
             rect = GameLayerBG.getBoundingClientRect(),
             x = point.clientX - rect.left,
-            y = point.clientY - rect.top,
             p = _gameBBList[_gameBBListIndex];
-        if (x < 0 || x >= rect.width || y > touchArea[0] || y < touchArea[1]) {
+        // Lane-only judgement: any tap inside the game surface counts when it
+        // lands in the correct one of four columns. This avoids vertical
+        // hitbox misses while a tile is moving or the player taps ahead.
+        if (x < 0 || x >= rect.width) {
             return false;
         }
         // Use the tap coordinate rather than event.target: a tile can move
