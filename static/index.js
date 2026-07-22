@@ -40,8 +40,8 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
     let fontunit = isDesktop ? 20 : ((window.innerWidth > window.innerHeight ? window.innerHeight : window.innerWidth) / 320) * 10;
     document.write('<style type="text/css">' +
         'html,body {font-size:' + (fontunit < 30 ? fontunit : '30') + 'px;}' +
-        (isDesktop ? '#welcome,#GameTimeLayer,#GameLayerBG,#GameScoreLayer.SHADE{position: absolute;}' :
-            '#welcome,#GameTimeLayer,#GameLayerBG,#GameScoreLayer.SHADE{position:fixed;}@media screen and (orientation:landscape) {#landscape {display: box; display: -webkit-box; display: -moz-box; display: -ms-flexbox;}}') +
+        (isDesktop ? '#welcome,#GameTimeLayer,#GameCPSLayer,#GameLayerBG,#GameScoreLayer.SHADE{position: absolute;}' :
+            '#welcome,#GameTimeLayer,#GameCPSLayer,#GameLayerBG,#GameScoreLayer.SHADE{position:fixed;}@media screen and (orientation:landscape) {#landscape {display: box; display: -webkit-box; display: -moz-box; display: -ms-flexbox;}}') +
         '</style>');
     let map = {'d': 1, 'f': 2, 'j': 3, 'k': 4};
     if (isDesktop) {
@@ -56,7 +56,7 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
 
     let body, blockSize, GameLayer = [],
         GameLayerBG, touchArea = [],
-        GameTimeLayer;
+        GameTimeLayer, GameCPSLayer;
     let transform, transitionDuration, welcomeLayerClosed;
 
     let mode = getMode();
@@ -71,6 +71,7 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
         'undefined' ? 'msTransform' : 'transform');
         transitionDuration = transform.replace(/ransform/g, 'ransitionDuration');
         GameTimeLayer = document.getElementById('GameTimeLayer');
+        GameCPSLayer = document.getElementById('GameCPSLayer');
         GameLayer.push(document.getElementById('GameLayer1'));
         GameLayer[0].children = GameLayer[0].querySelectorAll('div');
         GameLayer.push(document.getElementById('GameLayer2'));
@@ -180,7 +181,8 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
         _gameOver = false,
         _gameStart = false,
         _gameSettingNum=20,
-        _gameTime, _gameTimeNum, _gameScore, _date1, deviationTime;
+        _gameTime, _gameCPSLiveTimer, _gameTimeNum, _gameScore, _date1, deviationTime,
+        _badFlashTimer;
 
     let _gameStartTime, _gameStartDatetime;
 
@@ -201,6 +203,8 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
     }
 
     function gameRestart() {
+        clearInterval(_gameTime);
+        clearInterval(_gameCPSLiveTimer);
         _gameBBList = [];
         _gameBBListIndex = 0;
         _gameScore = 0;
@@ -208,6 +212,9 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
         _gameStart = false;
         _gameTimeNum = _gameSettingNum;
         _gameStartTime = 0;
+        _gameStartDatetime = 0;
+        clearTimeout(_badFlashTimer);
+        GameLayerBG.className = '';
         countBlockSize();
         refreshGameLayer(GameLayer[0]);
         refreshGameLayer(GameLayer[1], 1);
@@ -220,14 +227,14 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
         _gameStart = true;
 
         _gameTime = setInterval(timer, 1000);
+        // Use the exact same formula during the run and at the results screen.
+        _gameCPSLiveTimer = setInterval(updatePanel, 100);
     }
 
     function getCPS() {
-        let cps = _gameScore / ((new Date().getTime() - _gameStartDatetime) / 1000);
-        if (isNaN(cps) || cps === Infinity || _gameStartTime < 2) {
-            cps = 0;
-        }
-        return cps;
+        if (!_gameStartDatetime) return 0;
+        let elapsedSeconds = (new Date().getTime() - _gameStartDatetime) / 1000;
+        return elapsedSeconds > 0 ? _gameScore / elapsedSeconds : 0;
     }
 
     function timer() {
@@ -245,6 +252,9 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
     }
 
     function updatePanel() {
+        if (GameCPSLayer) {
+            GameCPSLayer.textContent = `CPS:${getCPS().toFixed(2)}`;
+        }
         if (mode === MODE_NORMAL) {
             if (!_gameOver) {
                 GameTimeLayer.innerHTML = createTimeText(_gameTimeNum);
@@ -265,6 +275,7 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
     function gameOver() {
         _gameOver = true;
         clearInterval(_gameTime);
+        clearInterval(_gameCPSLiveTimer);
         let cps = getCPS();
         updatePanel();
         setTimeout(function () {
@@ -300,8 +311,50 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
     let _ttreg = / t{1,2}(\d+)/,
         _clearttClsReg = / t{1,2}\d+| bad/;
 
+    function handForCell(cell) {
+        return cell < 2 ? 'left' : 'right';
+    }
+
+    function trailingRunLength(matches) {
+        let length = 0;
+        for (let i = _gameBBList.length - 1; i >= 0; i--) {
+            if (!matches(_gameBBList[i].cell)) break;
+            length++;
+        }
+        return length;
+    }
+
+    function chooseNextBlockCell() {
+        let last = _gameBBList[_gameBBList.length - 1];
+        let candidates = [0, 1, 2, 3];
+        if (!last) return candidates[Math.floor(Math.random() * candidates.length)];
+
+        // Never create three identical columns in a row. Prefer changing
+        // hands, and force it after two same-hand notes, so a run does not
+        // turn into repeated tapping with one hand.
+        if (trailingRunLength(cell => cell === last.cell) >= 2) {
+            candidates = candidates.filter(cell => cell !== last.cell);
+        }
+        let oppositeHand = candidates.filter(cell => handForCell(cell) !== handForCell(last.cell));
+        let sameHandRun = trailingRunLength(cell => handForCell(cell) === handForCell(last.cell));
+        if (oppositeHand.length && (sameHandRun >= 2 || Math.random() < 0.78)) {
+            candidates = oppositeHand;
+        }
+        return candidates[Math.floor(Math.random() * candidates.length)];
+    }
+
+    function flashPenalty(target) {
+        let indicator = target && target.classList && target.classList.contains('block') ? target : GameLayerBG;
+        indicator.classList.remove('bad');
+        // Reflow restarts the red flash even on rapid repeated mistakes.
+        void indicator.offsetWidth;
+        indicator.classList.add('bad');
+        clearTimeout(_badFlashTimer);
+        _badFlashTimer = setTimeout(() => indicator.classList.remove('bad'), 650);
+    }
+
     function refreshGameLayer(box, loop, offset) {
-        let i = Math.floor(Math.random() * 1000) % 4 + (loop ? 0 : 4);
+        let i = chooseNextBlockCell() + (loop ? 0 : 4);
         for (let j = 0; j < box.children.length; j++) {
             let r = box.children[j], rstyle = r.style;
             rstyle.left = (j % 4) * blockSize + 'px';
@@ -316,7 +369,7 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
                 });
                 r.className += ' t' + (Math.floor(Math.random() * 1000) % 5 + 1);
                 r.notEmpty = true;
-                i = (Math.floor(j / 4) + 1) * 4 + Math.floor(Math.random() * 1000) % 4;
+                i = (Math.floor(j / 4) + 1) * 4 + chooseNextBlockCell();
             } else {
                 r.notEmpty = false;
             }
@@ -389,18 +442,13 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
             updatePanel();
 
             gameLayerMoveNextRow();
-        } else if (_gameStart && !tar.notEmpty) {
+        } else if (_gameStart) {
             if (soundMode === 'on') {
                 createjs.Sound.play("err");
             }
-            tar.classList.add('bad');
-            if (mode === MODE_PRACTICE) {
-                setTimeout(() => {
-                    tar.classList.remove('bad');
-                }, 500);
-            } else {
-                gameOver();
-            }
+            flashPenalty(tar);
+            _gameScore = Math.max(0, _gameScore - 2);
+            updatePanel();
         }
         return false;
     }
@@ -420,6 +468,7 @@ const MODE_NORMAL = 1, MODE_ENDLESS = 2, MODE_PRACTICE = 3;
         }
         html += '</div>';
         html += '<div id="GameTimeLayer" class="text-center"></div>';
+        html += '<div id="GameCPSLayer" class="text-center">CPS:0.00</div>';
         return html;
     }
 
